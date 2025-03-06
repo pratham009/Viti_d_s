@@ -7,4 +7,5 @@ opencv-python
 matplotlib
 torch
 torchvision
-joblib 
+joblib
+tensorflow

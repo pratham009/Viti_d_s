@@ -1,59 +1,50 @@
-from src.data_loader import load_dataset
-from src.preprocess import preprocess_data
-from src.feature_extraction import extract_hog_features
-from src.model import prepare_data, train_model
-from src.utils import save_data
-from joblib import dump
+import cv2
 import numpy as np
+import tensorflow as tf
+from skimage.transform import resize
 
-# Define the base folder containing 'healthy' and 'vitiligo' subfolders
-base_folder = "C:\\Fythonn\\fyt\\Main\\Project_5\\data"  # Update this path if needed
+# Load the trained CNN model
+model = tf.keras.models.load_model('vitiligo_detection_cnn.h5')
 
-# Load data
-healthy_images, vitiligo_images = load_dataset(base_folder)
+# Function to preprocess a region for the CNN model
+def preprocess_region(region):
+    resized_region = resize(region, (64, 64))  # Resize to match model input size
+    resized_region = resized_region / 255.0    # Normalize pixel values to [0, 1]
+    return np.expand_dims(resized_region, axis=0)  # Add batch dimension
 
-# Debugging: Print the number of images loaded
-print(f"Number of healthy images: {len(healthy_images)}")
-print(f"Number of vitiligo images: {len(vitiligo_images)}")
+# Open a connection to the webcam
+cap = cv2.VideoCapture(0)  # 0 for default webcam
 
-# Preprocess data
-healthy_images, vitiligo_images = preprocess_data(healthy_images, vitiligo_images)
+while True:
+    # Capture frame-by-frame
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-# Debugging: Print the number of images after preprocessing
-print(f"Number of healthy images after preprocessing: {len(healthy_images)}")
-print(f"Number of vitiligo images after preprocessing: {len(vitiligo_images)}")
+    # Convert frame to RGB (CNN expects RGB images)
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-# Extract HOG features
-features_healthy = extract_hog_features(healthy_images)
-features_vitiligo = extract_hog_features(vitiligo_images)
+    # Preprocess the frame for the CNN model
+    processed_frame = preprocess_region(frame_rgb)
 
-# Debugging: Print the number of feature vectors
-print(f"Number of healthy feature vectors: {len(features_healthy)}")
-print(f"Number of vitiligo feature vectors: {len(features_vitiligo)}")
+    # Make a prediction
+    prediction = model.predict(processed_frame)
+    confidence = prediction[0][0] * 100  # Confidence percentage
 
-# Combine features and labels
-X = np.vstack((features_healthy, features_vitiligo))
-y = [0] * len(features_healthy) + [1] * len(features_vitiligo)
+    # Determine the label
+    label = "Vitiligo" if confidence >= 50 else "Healthy"
 
-# Debugging: Print the shapes of X and y
-print(f"X shape: {X.shape}")  # Should be (num_samples, num_features)
-print(f"y shape: {len(y)}")   # Should be (num_samples,)
+    # Display the label and confidence
+    text = f"{label}: {confidence:.2f}%"
+    cv2.putText(frame, text, (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-# Prepare data for training
-X_train, X_test, y_train, y_test = prepare_data(X, y)
+    # Display the resulting frame
+    cv2.imshow('Real-Time Vitiligo Detection', frame)
 
-# Debugging: Print the shapes of train/test sets
-print(f"X_train shape: {X_train.shape}")
-print(f"X_test shape: {X_test.shape}")
-print(f"y_train shape: {len(y_train)}")
-print(f"y_test shape: {len(y_test)}")
+    # Break the loop if 'q' is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-# Train model
-model = train_model(X_train, X_test, y_train, y_test)
-
-# Save processed data
-save_data((X_train, X_test, y_train, y_test), "processed_data.pkl")
-
-# Save the trained model
-dump(model, "trained_model.joblib")
-print("Trained model saved to 'trained_model.joblib'")
+# Release the webcam and close all OpenCV windows
+cap.release()
+cv2.destroyAllWindows()
